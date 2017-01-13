@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+from __future__ import print_function
+
+import os, sys
+import json, subprocess
+import optparse
+
+alg = 'sha256'
+
+HANDLERS = {}
+def handler(type):
+  def wrap(fn):
+    HANDLERS[type] = fn
+    return fn
+  return wrap
+
+def hash_slice(hsh, keys):
+  return { key: value for (key, value) in hsh.items() if key in keys }
+
+def hash_without(hsh, keys):
+  return { key: value for (key, value) in hsh.items() if key not in keys }
+
+def hash_merge(a, b):
+  copy = a.copy()
+  copy.update(b)
+  return copy
+
+@handler('fetchFromGitHub')
+def handle_github(inputs):
+  hash = subprocess.check_output([
+    'nix-prefetch-zip',
+    '--hash-type', alg,
+    'https://github.com/{owner}/{repo}/archive/{rev}.tar.gz'.format(**inputs),
+  ]).decode('ascii').strip()
+  params = hash_slice(inputs, ['rev', 'owner', 'repo'])
+  return hash_merge(params, { alg: hash })
+
+@handler('fetchgit')
+def handle_git(inputs):
+  url = inputs['url']
+  revision = inputs.get('rev', 'HEAD')
+
+  args = []
+  if inputs.get('submodules', False):
+    args.append('--fetch-submodules')
+
+  json_str = subprocess.check_output(
+    ['nix-prefetch-git'] + args + [url, revision]
+  ).decode('utf-8')
+  # fetchgit builder already returns JSON
+  params = json.loads(json_str)
+  return hash_without(params, ['date'])
+
+def main():
+  p = optparse.OptionParser()
+  p.add_option('-s', '--set', nargs=2, action='append', default=[])
+  p.add_option('--prompt', action='append', default=[])
+  p.add_option('-i', '--input')
+  p.add_option('-o', '--output')
+
+  opts, args = p.parse_args()
+  assert not args, "Too many arguments"
+  if not opts.output:
+    opts.output = 'src.json'
+
+  input_data = {}
+  if opts.input:
+    print("loading %s" % opts.input)
+    with open(opts.input) as f:
+      input_data = json.load(f)
+
+  for key, val in opts.set:
+    input_data[key] = val
+
+  for key in opts.prompt:
+    input_data[key] = input('Enter value for %r: ' % (key,)).strip('\n')
+
+  # interpret {placeholders} (note: not recursive or even ordered; won't work for dependent interpolations)
+  for k, v in input_data.items():
+    if '{' in v:
+      input_data[k] = v.format(**input_data)
+
+  print(' -> ' + repr(input_data))
+
+  try:
+    handler = HANDLERS[input_data['type']]
+  except KeyError:
+    raise RuntimeError("Unsupported type: {type}".format(**input_data))
+
+  params = handler(input_data)
+
+  output_json = hash_merge(input_data, { 'fetchArgs': params })
+  print(' -> ' + repr(output_json))
+
+  with open(opts.output, 'w') as dest:
+    json.dump(output_json, dest, sort_keys=True, indent=2, separators=(',', ': '))
+
+main()
