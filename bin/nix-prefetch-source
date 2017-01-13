@@ -52,22 +52,26 @@ def handle_git(inputs):
   return hash_without(params, ['date'])
 
 def main():
-  p = optparse.OptionParser()
+  p = optparse.OptionParser('Usage: %prog [OPTIONS] intputfile')
   p.add_option('-s', '--set', nargs=2, action='append', default=[])
   p.add_option('--prompt', action='append', default=[])
-  p.add_option('-i', '--input')
-  p.add_option('-o', '--output')
+  p.add_option('-o', '--output', help='defaults to updating input')
 
   opts, args = p.parse_args()
-  assert not args, "Too many arguments"
-  if not opts.output:
-    opts.output = 'src.json'
+  assert len(args <= 1), "Too many arguments"
 
   input_data = {}
-  if opts.input:
-    print("loading %s" % opts.input)
-    with open(opts.input) as f:
+  input_file = None
+  if len(args > 0)
+    input_file = args[0]
+    if not opts.output:
+      opts.output = input_file
+
+    print("loading %s" % input_file)
+    with open(input_file) as f:
       input_data = json.load(f)
+
+  assert opts.output, "Output path required"
 
   for key, val in opts.set:
     input_data[key] = val
@@ -82,17 +86,20 @@ def main():
 
   print(' -> ' + repr(input_data))
 
+  fetch_type = input_data['type']
   try:
-    handler = HANDLERS[input_data['type']]
+    handler = HANDLERS[fetch_type]
   except KeyError:
     raise RuntimeError("Unsupported type: {type}".format(**input_data))
 
   params = handler(input_data)
 
-  output_json = hash_merge(input_data, { 'fetchArgs': params })
+  output_json = hash_merge(input_data, { 'fetch': { 'fn': fetch_type, 'args': params } })
   print(' -> ' + repr(output_json))
 
-  with open(opts.output, 'w') as dest:
+  tempfile = opts.output + '.tmp'
+  with open(tempfile, 'w') as dest:
     json.dump(output_json, dest, sort_keys=True, indent=2, separators=(',', ': '))
+  os.rename(tempfile, opts.output)
 
 main()
