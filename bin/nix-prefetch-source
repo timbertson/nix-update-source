@@ -25,6 +25,10 @@ def hash_merge(a, b):
   copy.update(b)
   return copy
 
+class Fetcher(object):
+  def __init__(self, fnname, args):
+    self.json = { 'fn': fnname, 'args': args }
+
 @handler('fetchFromGitHub')
 def handle_github(inputs):
   hash = subprocess.check_output([
@@ -33,7 +37,7 @@ def handle_github(inputs):
     'https://github.com/{owner}/{repo}/archive/{rev}.tar.gz'.format(**inputs),
   ]).decode('ascii').strip()
   params = hash_slice(inputs, ['rev', 'owner', 'repo'])
-  return hash_merge(params, { alg: hash })
+  return Fetcher('fetchFromGitHub', hash_merge(params, { alg: hash }))
 
 @handler('fetchgit')
 def handle_git(inputs):
@@ -49,7 +53,7 @@ def handle_git(inputs):
   ).decode('utf-8')
   # fetchgit builder already returns JSON
   params = json.loads(json_str)
-  return hash_without(params, ['date'])
+  return Fetcher('fetchgit', hash_without(params, ['date']))
 
 def main():
   p = optparse.OptionParser('Usage: %prog [OPTIONS] intputfile')
@@ -57,45 +61,49 @@ def main():
   p.add_option('--prompt', action='append', default=[])
   p.add_option('-o', '--output', help='defaults to updating input')
 
-  opts, args = p.parse_args()
-  assert len(args <= 1), "Too many arguments"
-
   input_data = {}
   input_file = None
-  if len(args > 0)
+
+  opts, args = p.parse_args()
+  assert len(args) <= 1, "Too many arguments"
+
+  if len(args) > 0:
     input_file = args[0]
     if not opts.output:
       opts.output = input_file
 
-    print("loading %s" % input_file)
+    print('Loading %s' % input_file, file=sys.stderr)
     with open(input_file) as f:
       input_data = json.load(f)
 
   assert opts.output, "Output path required"
 
+  derived_data = {}
+
   for key, val in opts.set:
-    input_data[key] = val
+    derived_data[key] = val
 
   for key in opts.prompt:
-    input_data[key] = input('Enter value for %r: ' % (key,)).strip('\n')
+    derived_data[key] = input('Enter value for %r: ' % (key,)).strip('\n')
 
   # interpret {placeholders} (note: not recursive or even ordered; won't work for dependent interpolations)
   for k, v in input_data.items():
     if '{' in v:
-      input_data[k] = v.format(**input_data)
+      derived_data[k] = v.format(**input_data)
 
-  print(' -> ' + repr(input_data))
+  combined_inputs = hash_merge(input_data, derived_data)
+  print('input data: %r' % (combined_inputs), file=sys.stderr)
 
-  fetch_type = input_data['type']
+  fetch_type = combined_inputs['type']
   try:
     handler = HANDLERS[fetch_type]
   except KeyError:
-    raise RuntimeError("Unsupported type: {type}".format(**input_data))
+    raise RuntimeError("Unsupported type: {type}".format(**combined_inputs))
 
-  params = handler(input_data)
+  fetcher = handler(combined_inputs)
 
-  output_json = hash_merge(input_data, { 'fetch': { 'fn': fetch_type, 'args': params } })
-  print(' -> ' + repr(output_json))
+  output_json = hash_merge(input_data, { 'fetch': hash_merge(derived_data, fetcher.json) })
+  print('Writing %s' % opts.output, file=sys.stderr)
 
   tempfile = opts.output + '.tmp'
   with open(tempfile, 'w') as dest:

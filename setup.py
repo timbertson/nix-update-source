@@ -13,8 +13,6 @@ setup(
 	version=read('VERSION'),
 	url='https://github.com/timbertson/nix-prefetch-source',
 	install_requires=[],
-	entry_points={
-		'console_scripts': [ 'bin/nix-prefetch-source' ],
-	},
+	scripts=['bin/nix-prefetch-source' ]
 )
 
