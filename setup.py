@@ -9,10 +9,10 @@ def read(relpath):
 		return f.read()
 
 setup(
-	name='nix-prefetch-source',
+	name='nix-update-source',
 	version=read('VERSION'),
-	url='https://github.com/timbertson/nix-prefetch-source',
+	url='https://github.com/timbertson/nix-update-source',
 	install_requires=[],
-	scripts=['bin/nix-prefetch-source' ]
+	scripts=['bin/nix-update-source' ]
 )
 
