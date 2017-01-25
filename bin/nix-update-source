@@ -87,11 +87,11 @@ def main():
     derived_data[key] = input('Enter value for %r: ' % (key,)).strip('\n')
 
   # interpret {placeholders} (note: not recursive or even ordered; won't work for dependent interpolations)
-  for k, v in input_data.items():
-    if '{' in v:
-      derived_data[k] = v.format(**input_data)
-
   combined_inputs = hash_merge(input_data, derived_data)
+  for k, v in combined_inputs.items():
+    if '{' in v:
+      derived_data[k] = combined_inputs[k] = v.format(**combined_inputs)
+
   print('input data: %r' % (combined_inputs), file=sys.stderr)
 
   fetch_type = combined_inputs['type']
