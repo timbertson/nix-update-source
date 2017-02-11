@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 from __future__ import print_function
 
-import os, sys
+import os, sys, re
 import json, subprocess
 import optparse
+import contextlib
+from functools import *
 
 alg = 'sha256'
 
@@ -29,18 +31,35 @@ class Fetcher(object):
   def __init__(self, fnname, args):
     self.json = { 'fn': fnname, 'args': args }
 
+@contextlib.contextmanager
+def write_with_backup(path):
+  tempfile = path + '.tmp'
+  action = 'Replacing' if os.path.exists(path) else 'Writing'
+  print('%s %s' % (action, path), file=sys.stderr)
+  try:
+    with open(tempfile, 'w') as dest:
+      yield dest
+    os.rename(tempfile, path)
+  except:
+    try: os.unlink(tempfile)
+    except OSError: pass
+    raise
+
 @handler('fetchFromGitHub')
-def handle_github(inputs):
-  hash = subprocess.check_output([
-    'nix-prefetch-zip',
-    '--hash-type', alg,
-    'https://github.com/{owner}/{repo}/archive/{rev}.tar.gz'.format(**inputs),
-  ]).decode('ascii').strip()
+def handle_github(inputs, fake):
+  if fake:
+    hash = '123456'
+  else:
+    hash = subprocess.check_output([
+      'nix-prefetch-zip',
+      '--hash-type', alg,
+      'https://github.com/{owner}/{repo}/archive/{rev}.tar.gz'.format(**inputs),
+    ]).decode('ascii').strip()
   params = hash_slice(inputs, ['rev', 'owner', 'repo'])
   return Fetcher('fetchFromGitHub', hash_merge(params, { alg: hash }))
 
 @handler('fetchgit')
-def handle_git(inputs):
+def handle_git(inputs, fake):
   url = inputs['url']
   revision = inputs.get('rev', 'HEAD')
 
@@ -48,18 +67,143 @@ def handle_git(inputs):
   if inputs.get('submodules', False):
     args.append('--fetch-submodules')
 
-  json_str = subprocess.check_output(
-    ['nix-prefetch-git'] + args + [url, revision]
-  ).decode('utf-8')
-  # fetchgit builder already returns JSON
-  params = json.loads(json_str)
+  if fake:
+    params = inputs
+  else:
+    json_str = subprocess.check_output(
+      ['nix-prefetch-git'] + args + [url, revision]
+    ).decode('utf-8')
+    # fetchgit builder already returns JSON
+    params = json.loads(json_str)
   return Fetcher('fetchgit', hash_without(params, ['date']))
+
+def edit_nix_stream(infile, outfile, indent, attrs):
+  # stupid magic - `src` is special
+  attrs = attrs.copy()
+  if 'src' in attrs:
+    src = attrs['src']
+    attrs['src'] = (src['fn'], src['args'])
+
+  open_braces = 0
+  current_attr = None
+  lineno = 0
+
+  def count(ch, line):
+    return reduce(
+      lambda count, candidate: count + 1 if candidate == ch else count,
+      line, 0)
+
+  def update_braces(line):
+    nonlocal open_braces
+    open_braces += count('{', line)
+    open_braces -= count('}', line)
+    assert open_braces >= 0, "too many close braces on line %s: %s" % (lineno, line)
+
+  def format_val(prefix, key, val):
+    lines = []
+    current_line = None
+    indent_lvl = 0
+
+    def append(*parts):
+      # print('append:', repr(parts))
+      nonlocal current_line, indent_lvl
+      if current_line is None:
+        current_line = (indent * indent_lvl)
+      current_line += ' '.join(parts)
+
+    def nl():
+      nonlocal lines, current_line
+      if current_line is not None:
+        # print("NL: " + current_line)
+        lines.append(current_line)
+        current_line = None
+
+    def assign(key, val):
+      append(key, '= ')
+      write(val)
+      append(';')
+      nl()
+
+    def write(val):
+      nonlocal indent_lvl
+      if isinstance(val, str):
+        append('"' + val + '"')
+      elif isinstance(val, tuple):
+        fn, args = val
+        append(fn, '')
+        write(args)
+      elif isinstance(val, dict):
+        append('{')
+        indent_lvl += 1
+        nl()
+        for k in sorted(val.keys()):
+          assign(k, val[k])
+        indent_lvl -= 1
+        append('}')
+      else:
+        assert False, "unknown value type: %s" % (type(val))
+
+    assign(key, val)
+    nl()
+    return '\n'.join([prefix + line for line in lines])
+
+  # impl begins
+  prefix = ''
+  def write_current_attr():
+    nonlocal current_attr
+    print(format_val(prefix, *current_attr), file=outfile)
+    current_attr = None
+
+  for line in infile:
+    lineno += 1
+    line = line.rstrip('\r\n')
+    if current_attr is not None:
+      update_braces(line)
+      if open_braces == 0:
+        write_current_attr()
+    else:
+      for key, val in attrs.items():
+        match = re.match('^(\s+){var} +='.format(var=re.escape(key)), line)
+        if match is not None:
+          # print("Replacing attr: %s // %s" % (key, line), file=sys.stderr)
+          prefix = match.group(1)
+          current_attr = (key, val)
+          del attrs[key]
+          update_braces(line)
+          if open_braces == 0:
+            write_current_attr()
+          break
+      else:
+        print(line, file=outfile)
+
+  assert current_attr == None
+  assert open_braces == 0
+  assert len(attrs) == 0, "Unused keys: %s" % (', '.join(attrs.keys()))
+
+def inject_into_nix_file(path, attrs, stdout, indent):
+  indent = indent.replace(r'\t', '\t')
+
+  if stdout:
+    with open(path) as infile:
+      edit_nix_stream(infile, sys.stdout, indent, attrs)
+  else:
+    with open(path) as infile:
+      with write_with_backup(path) as outfile:
+        edit_nix_stream(infile, outfile, indent, attrs)
 
 def main():
   p = optparse.OptionParser('Usage: %prog [OPTIONS] intputfile')
   p.add_option('-s', '--set', nargs=2, action='append', default=[])
   p.add_option('--prompt', action='append', default=[])
-  p.add_option('-o', '--output', help='defaults to updating input')
+  p.add_option('-o', '--output', help='output JSON')
+  p.add_option('--inline', help='replace input JSON with output JSON')
+
+  p.add_option('--modify-nix', dest='nix_output', help='modify nix file in-place')
+  p.add_option('--nix-indent', default='  ')
+  p.add_option('--replace-attr', default=[], action='append', help='(also replace the following attr use with --modify-nix)')
+
+  p.add_option('--nix-print', action='store_true', help='used for testing')
+  p.add_option('--fake-fetch', action='store_true', help='used for testing')
 
   input_data = {}
   input_file = None
@@ -68,15 +212,21 @@ def main():
   assert len(args) <= 1, "Too many arguments"
 
   if len(args) > 0:
-    input_file = args[0]
-    if not opts.output:
-      opts.output = input_file
+    input_file, = args
 
     print('Loading %s' % input_file, file=sys.stderr)
     with open(input_file) as f:
       input_data = json.load(f)
 
-  assert opts.output, "Output path required"
+    if opts.inline:
+      opts.output = input_file
+
+  else:
+    assert not opts.inline, "can't use --inline without an input file"
+    print("Note: not using an input file - you'll need to specify all inputs as arguments", file=sys.stderr)
+
+  assert opts.output or opts.nix_output, "--output or --modify-nix required"
+  fake = opts.fake_fetch
 
   derived_data = {}
 
@@ -100,14 +250,18 @@ def main():
   except KeyError:
     raise RuntimeError("Unsupported type: {type}".format(**combined_inputs))
 
-  fetcher = handler(combined_inputs)
+  fetcher = handler(combined_inputs, fake=fake)
 
-  output_json = hash_merge(input_data, { 'fetch': hash_merge(derived_data, fetcher.json) })
-  print('Writing %s' % opts.output, file=sys.stderr)
+  if opts.output:
+    output_json = hash_merge(input_data, { 'fetch': hash_merge(derived_data, fetcher.json) })
+    with write_with_backup(opts.output) as dest:
+      json.dump(output_json, dest, sort_keys=True, indent=2, separators=(',', ': '))
 
-  tempfile = opts.output + '.tmp'
-  with open(tempfile, 'w') as dest:
-    json.dump(output_json, dest, sort_keys=True, indent=2, separators=(',', ': '))
-  os.rename(tempfile, opts.output)
+  if opts.nix_output:
+    nix_attrs = { 'src': fetcher.json }
+    for k in opts.replace_attr:
+      nix_attrs[k] = derived_data[k]
+
+    inject_into_nix_file(opts.nix_output, nix_attrs, stdout=opts.nix_print, indent=opts.nix_indent)
 
 main()
