@@ -223,7 +223,6 @@ def main():
 
   else:
     assert not opts.inline, "can't use --inline without an input file"
-    print("Note: not using an input file - you'll need to specify all inputs as arguments", file=sys.stderr)
 
   assert opts.output or opts.nix_output, "--output or --modify-nix required"
   fake = opts.fake_fetch
