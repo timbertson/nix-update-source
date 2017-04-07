@@ -51,8 +51,9 @@ def handle_github(inputs, fake):
     hash = '123456'
   else:
     hash = subprocess.check_output([
-      'nix-prefetch-zip',
-      '--hash-type', alg,
+      'nix-prefetch-url',
+      '--type', alg,
+      '--unpack',
       'https://github.com/{owner}/{repo}/archive/{rev}.tar.gz'.format(**inputs),
     ]).decode('ascii').strip()
   params = hash_slice(inputs, ['rev', 'owner', 'repo'])
@@ -196,7 +197,7 @@ def main():
   p.add_option('-s', '--set', nargs=2, action='append', default=[])
   p.add_option('--prompt', action='append', default=[])
   p.add_option('-o', '--output', help='output JSON')
-  p.add_option('--inline', help='replace input JSON with output JSON')
+  p.add_option('-i', '--inline', action='store_true', help='replace input JSON with output JSON')
 
   p.add_option('--modify-nix', dest='nix_output', help='modify nix file in-place')
   p.add_option('--nix-indent', default='  ')
@@ -209,7 +210,7 @@ def main():
   input_file = None
 
   opts, args = p.parse_args()
-  assert len(args) <= 1, "Too many arguments"
+  assert len(args) <= 1, "Unexpected extra arguments: %r" % (args[1:],)
 
   if len(args) > 0:
     input_file, = args
