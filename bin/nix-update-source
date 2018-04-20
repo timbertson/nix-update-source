@@ -202,6 +202,7 @@ def main():
   p.add_option('--modify-nix', dest='nix_output', help='modify nix file in-place')
   p.add_option('--nix-indent', default='  ')
   p.add_option('--replace-attr', default=[], action='append', help='(also replace the following attr use with --modify-nix)')
+  p.add_option('--substitute', default=[], action='append', nargs=2, help='substitute fetcher argument (useful to replace a local url with a public one)')
 
   p.add_option('--nix-print', action='store_true', help='used for testing')
   p.add_option('--fake-fetch', action='store_true', help='used for testing')
@@ -238,9 +239,23 @@ def main():
 
   # interpret {placeholders} (note: not recursive or even ordered; won't work for dependent interpolations)
   combined_inputs = hash_merge(input_data, derived_data)
+
+  substitutions = list(opts.substitute)
+  if 'substitute' in input_data:
+    substitutions = substitutions + list(input_data['substitute'].items())
+    del combined_inputs['substitute']
+
+  def interpolate(v, attrs):
+    if isinstance(v, str) and '{' in v:
+      return v.format(**attrs)
+    else:
+      return v
+
+  # interpolate inputs
   for k, v in combined_inputs.items():
-    if '{' in v:
-      derived_data[k] = combined_inputs[k] = v.format(**combined_inputs)
+    interpolated = interpolate(v, combined_inputs)
+    if interpolated != v:
+      derived_data[k] = combined_inputs[k] = interpolated
 
   print('input data: %r' % (combined_inputs), file=sys.stderr)
 
@@ -251,6 +266,14 @@ def main():
     raise RuntimeError("Unsupported type: {type}".format(**combined_inputs))
 
   fetcher = handler(combined_inputs, fake=fake)
+
+  # perform substitutions for actual fetch args
+  for k, v in substitutions:
+    base = fetcher.json['args']
+    if k == 'fn':
+      # special case:
+      base = fetcher
+    base[k] = interpolate(v, combined_inputs)
 
   if opts.output:
     output_json = hash_merge(input_data, { 'fetch': hash_merge(derived_data, fetcher.json) })
