@@ -141,7 +141,7 @@ $ nix-update-source --set type fetchFromGitHub --set repo piep --set owner timbe
 
 # Usage in a nix derivation (using a source specification):
 
-### NOTE: please don't use this in pulls requests to `nixpkgs`, you'll get yelled at. Keep reading below for the nixpkgs-friendly approach :)
+### NOTE: please don't use this in pull requests to `nixpkgs`, you'll get yelled at. Keep reading below for the nixpkgs-friendly approach :)
 
 The `nix-update-source` derivation in nixpkgs has a `fetch` function - you can use this at build time to import the source using this JSON file:
 
