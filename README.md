@@ -162,7 +162,7 @@ Unfortunately, the nixpkgs maintainers (well, some of them) don't like separatin
 $ nix-update-source src.in.json --modify-nix default.nix
 ```
 
-`defaut.nix` _should_ already be a derivation with a `src` attribute so that `nix-update-source` knows where to put the new information, but `src` doesn't need to be anything useful - `""` or `null` is fine. You'll get an error if it can't figure out what to replace.
+`default.nix` _should_ already be a derivation with a `src` attribute so that `nix-update-source` knows where to put the new information, but `src` doesn't need to be anything useful - `""` or `null` is fine. You'll get an error if it can't figure out what to replace.
 
 You can play with `--nix-indent` and `--replace-attr` for additional control over what gets replaced (particularly handy for including a `version` attribute).
 
