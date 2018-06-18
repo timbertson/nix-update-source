@@ -1,0 +1,13 @@
+#!bash -eu
+gup -u ../VERSION
+pwd
+VERSION="$(cat ../VERSION)"
+../bin/nix-update-source \
+	--set version "$VERSION" \
+	--replace-attr version \
+	--set owner timbertson \
+	--set localRepo .. \
+	--set repo nix-update-source \
+	--set type fetchFromGitHub \
+	--set rev 'version-{version}' \
+	--modify-nix default.nix
