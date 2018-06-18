@@ -154,6 +154,10 @@ stdenv.mkDerivation {
 }
 ```
 
+### Tip 4: you can use a local version
+
+With both `fetchgit` and `fetchFromGitHub`, you can provide a `localRepo` value. This will be used to generate the sha256 digest (without having to download anything), but the public URL will be used in the output JSON (so users of that JSON will fetch from the public URL).
+
 # Usage in official nixpkgs
 
 Unfortunately, the nixpkgs maintainers (well, some of them) don't like separating out generated data (the JSON output) from the manually written code (the derivation itself). So please don't go submitting packages which use `nix-update-source.fetch` into `nixpkgs` proper (I did it once, and it got reverted a week later). Instead, you can use nix-update-source to modify an existing derivation:
