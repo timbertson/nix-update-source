@@ -82,7 +82,7 @@ def handle_git(inputs, fake):
   prefetchUrl = url = inputs['url']
   localUrl = inputs.get('localRepo', None)
   if localUrl != None:
-    prefetchUrl = localUrl
+    prefetchUrl = os.path.abspath(localUrl)
     print('Using local repo at %s for %s' % (prefetchUrl, url))
   revision = inputs.get('rev', 'HEAD')
 
