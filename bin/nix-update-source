@@ -98,7 +98,7 @@ def handle_git(inputs, fake):
       ['nix-prefetch-git'] + args + [prefetchUrl, revision]
     ).decode('utf-8')
     # fetchgit builder already returns JSON
-    output_params = json.loads(json_str)
+    params = json.loads(json_str)
     if localUrl is not None:
       params['url'] = inputs['url'] # override localRepo
     params['fetchSubmodules'] = fetchSubmodules # this is misreported in old versions of nix-prefetch-git
