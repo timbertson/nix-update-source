@@ -54,7 +54,8 @@ def handle_github(inputs, fake):
     localRepo = inputs.get('localRepo', None)
     if localRepo is not None:
       print('Using local repo at %s for %s/%s' % (localRepo, inputs['owner'], inputs['repo']))
-      params['rev'] = subprocess.check_output(['git', 'rev-parse', inputs['rev']], cwd=localRepo).decode('ascii').strip()
+      if inputs['rev'].startswith('refs/heads/'):
+        params['rev'] = subprocess.check_output(['git', 'rev-parse', inputs['rev']], cwd=localRepo).decode('ascii').strip()
       import shutil
       import tempfile
       tmpdir = tempfile.mkdtemp()
