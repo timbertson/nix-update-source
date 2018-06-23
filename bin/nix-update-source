@@ -48,13 +48,14 @@ def write_with_backup(path):
 @handler('fetchFromGitHub')
 def handle_github(inputs, fake):
   params = hash_slice(inputs, ['rev', 'owner', 'repo'])
+  is_branch_ref = inputs['rev'].startswith('refs/heads/')
   if fake:
     hash = '123456'
   else:
     localRepo = inputs.get('localRepo', None)
     if localRepo is not None:
       print('Using local repo at %s for %s/%s' % (localRepo, inputs['owner'], inputs['repo']))
-      if inputs['rev'].startswith('refs/heads/'):
+      if is_branch_ref:
         params['rev'] = subprocess.check_output(['git', 'rev-parse', inputs['rev']], cwd=localRepo).decode('ascii').strip()
       import shutil
       import tempfile
@@ -68,6 +69,8 @@ def handle_github(inputs, fake):
       finally:
         shutil.rmtree(tmpdir)
     else:
+      if is_branch_ref:
+        raise RuntimeError("`localRepo` required to resolve %s" % (inputs['rev'],))
       hash_output = subprocess.check_output([
         'nix-prefetch-url',
         '--type', alg,
