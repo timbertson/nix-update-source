@@ -230,6 +230,7 @@ def main():
 
   p.add_option('--modify-nix', dest='nix_output', help='modify nix file in-place')
   p.add_option('--nix-indent', default='  ')
+  p.add_option('--nix-literal', default=[], action='append', nargs=2, help='override nix literal (e.g. rev="v-${version}" to use nix interpolation')
   p.add_option('--replace-attr', default=[], action='append', help='(also replace the following attr use with --modify-nix)')
   p.add_option('--substitute', default=[], action='append', nargs=2, help='substitute fetcher argument (useful to replace a local url with a public one)')
 
@@ -263,8 +264,12 @@ def main():
   for key, val in opts.set:
     derived_data[key] = val
 
-  for key in opts.prompt:
-    derived_data[key] = input('Enter value for %r: ' % (key,)).strip('\n')
+  if opts.prompt:
+    with open('/dev/tty', 'w') as tty:
+      for key in opts.prompt:
+        print('Enter value for %r:' % (key,), file=tty)
+        derived_data[key] = input().strip('\n')
+        print('', file=tty)
 
   # interpret {placeholders} (note: not recursive or even ordered; won't work for dependent interpolations)
   combined_inputs = hash_merge(input_data, derived_data)
@@ -313,6 +318,9 @@ def main():
     nix_attrs = { 'src': fetcher.json }
     for k in opts.replace_attr:
       nix_attrs[k] = derived_data[k]
+    for (k,v) in opts.nix_literal:
+      src_args = nix_attrs['src']['args']
+      src_args[k] = v
 
     inject_into_nix_file(opts.nix_output, nix_attrs, stdout=opts.nix_print, indent=opts.nix_indent)
 
