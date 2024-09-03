@@ -65,7 +65,7 @@ def handle_github(inputs, fake):
         unzip = subprocess.Popen(['tar', 'x'], cwd=tmpdir, stdin=export.stdout)
         assert export.wait() == 0
         assert unzip.wait() == 0
-        hash_output = subprocess.check_output(['nix-hash', '--type', 'sha256', '--base32', tmpdir])
+        hash_output = subprocess.check_output(['nix-hash', '--type', alg, '--base32', tmpdir])
       finally:
         shutil.rmtree(tmpdir)
     else:
@@ -77,8 +77,10 @@ def handle_github(inputs, fake):
         '--unpack',
         'https://github.com/{owner}/{repo}/archive/{rev}.tar.gz'.format(**inputs),
       ])
-    hash = hash_output.decode('ascii').strip()
-  return Fetcher('fetchFromGitHub', hash_merge(params, { alg: hash }))
+    hex_hash = hash_output.decode('ascii').strip()
+
+    hash = subprocess.check_output(['nix-hash', '--type', alg, '--to-sri', hex_hash]).decode('ascii').strip()
+  return Fetcher('fetchFromGitHub', hash_merge(params, { 'hash': hash }))
 
 @handler('fetchgit')
 def handle_git(inputs, fake):
